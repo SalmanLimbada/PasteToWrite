@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>PasteToWrite</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f11;--surface:#1a1a1f;--surface2:#222228;--border:#2e2e38;
+  --accent:#7c6dfa;--accent-dim:#5548c8;--accent-glow:rgba(124,109,250,0.2);
+  --text:#e8e8f0;--muted:#7777994;--muted:#77779a;
+  --danger:#f26b6b;--success:#6bf2a0;--warn:#f5c76b;
+  --mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif;
+}
+body{width:340px;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px;overflow:hidden}
+
+/* ── Header ── */
+.header{display:flex;align-items:center;gap:10px;padding:14px 16px 11px;border-bottom:1px solid var(--border)}
+.logo{width:30px;height:30px;border-radius:8px;overflow:hidden;flex-shrink:0;box-shadow:0 0 12px var(--accent-glow)}
+.logo img{width:100%;height:100%;display:block}
+.header-text h1{font-family:var(--mono);font-size:13px;font-weight:500;letter-spacing:.05em;color:var(--text)}
+.header-text .sub{font-size:10px;color:var(--muted);margin-top:1px}
+.dot{margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--border);transition:background .3s,box-shadow .3s;flex-shrink:0}
+.dot.running{background:var(--success);box-shadow:0 0 8px var(--success);animation:pulse 1.2s ease-in-out infinite}
+.dot.paused{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ── Body ── */
+.body{padding:13px 16px 0;display:flex;flex-direction:column;gap:12px}
+
+/* ── Textarea row ── */
+.textarea-wrap{position:relative}
+textarea{
+  width:100%;min-height:78px;max-height:280px;height:78px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-family:var(--mono);font-size:12px;
+  padding:9px 11px 9px 11px;
+  resize:vertical;outline:none;transition:border-color .2s;line-height:1.6;
+  display:block;
+}
+textarea:focus{border-color:var(--accent)}
+textarea::placeholder{color:var(--muted)}
+.btn-clear-text{
+  position:absolute;top:6px;right:7px;
+  background:none;border:none;cursor:pointer;
+  color:var(--muted);font-size:13px;line-height:1;padding:2px 4px;border-radius:4px;
+  transition:color .15s,background .15s;
+}
+.btn-clear-text:hover{color:var(--danger);background:rgba(242,107,107,.1)}
+
+/* ── Sliders ── */
+.sliders{display:flex;flex-direction:column;gap:9px}
+.slider-row{display:flex;align-items:center;gap:9px}
+.slider-row label{font-size:11px;color:var(--muted);width:74px;flex-shrink:0;font-family:var(--mono)}
+.val{font-family:var(--mono);font-size:11px;color:var(--accent);width:40px;text-align:right;flex-shrink:0}
+input[type=range]{flex:1;-webkit-appearance:none;height:3px;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);box-shadow:0 0 5px var(--accent-glow);cursor:pointer;transition:transform .1s}
+input[type=range]::-webkit-slider-thumb:active{transform:scale(1.2)}
+
+/* ── Reset defaults link ── */
+.reset-row{display:flex;justify-content:flex-end}
+.btn-reset{background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--muted);padding:0;transition:color .15s;text-decoration:underline;text-underline-offset:2px}
+.btn-reset:hover{color:var(--accent)}
+
+/* ── Action buttons ── */
+.buttons{display:flex;gap:6px;padding-bottom:13px}
+button.action{flex:1;padding:9px 0;border:none;border-radius:8px;font-family:var(--mono);font-size:11px;font-weight:500;cursor:pointer;transition:opacity .15s,transform .1s,background .2s,box-shadow .2s;letter-spacing:.03em}
+button.action:active:not(:disabled){transform:scale(.96)}
+button.action:disabled{opacity:.28;cursor:not-allowed;transform:none}
+#btnStart{background:var(--accent);color:#fff;box-shadow:0 0 14px var(--accent-glow)}
+#btnStart:not(:disabled):hover{background:#8f82ff;box-shadow:0 0 20px var(--accent-glow)}
+#btnPause{background:var(--surface2);color:var(--warn);border:1px solid var(--border)}
+#btnPause.resuming{color:var(--success);border-color:rgba(107,242,160,.4)}
+#btnPause:not(:disabled):hover{background:#2a2a32}
+#btnStop{background:var(--surface2);color:var(--danger);border:1px solid var(--border)}
+#btnStop:not(:disabled):hover{background:#2a2a32}
+
+/* ── Status bar ── */
+.statusbar{padding:7px 16px 13px;font-family:var(--mono);font-size:10px;color:var(--muted);display:flex;align-items:center;gap:6px;min-height:30px;border-top:1px solid var(--border)}
+.statusbar .icon{font-size:11px;flex-shrink:0}
+.statusbar.err{color:var(--danger)}
+.statusbar.good{color:var(--success)}
+.statusbar.warn{color:var(--warn)}
+.statusbar.run{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo"><img src="icon48.png" alt=""/></div>
+  <div class="header-text">
+    <h1>PasteToWrite</h1>
+    <div class="sub">human-like typing · works anywhere</div>
+  </div>
+  <div class="dot" id="dot"></div>
+</div>
+
+<div class="body">
+
+  <div class="textarea-wrap">
+    <textarea id="text" placeholder="Paste your text here…"></textarea>
+    <button class="btn-clear-text" id="btnClearText" title="Clear text">✕</button>
+  </div>
+
+  <div class="sliders">
+    <div class="slider-row">
+      <label>Speed</label>
+      <input type="range" id="wpm" min="20" max="200" value="80" step="5"/>
+      <span class="val" id="wpmVal">80 wpm</span>
+    </div>
+    <div class="slider-row">
+      <label>Typos</label>
+      <input type="range" id="errors" min="0" max="100" value="5" step="1"/>
+      <span class="val" id="errorsVal">5%</span>
+    </div>
+    <div class="slider-row">
+      <label>Pauses</label>
+      <input type="range" id="bursts" min="0" max="100" value="30" step="5"/>
+      <span class="val" id="burstsVal">30%</span>
+    </div>
+  </div>
+
+  <div class="reset-row">
+    <button class="btn-reset" id="btnReset">↺ reset to defaults</button>
+  </div>
+
+  <div class="buttons">
+    <button class="action" id="btnStart">▶ Start</button>
+    <button class="action" id="btnPause" disabled>⏸ Pause</button>
+    <button class="action" id="btnStop"  disabled>■ Stop</button>
+  </div>
+
+</div>
+
+<div class="statusbar" id="status">
+  <span class="icon">💡</span>
+  <span>Click a text box anywhere, then hit Start.</span>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
