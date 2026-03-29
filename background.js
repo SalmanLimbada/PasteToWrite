@@ -67,8 +67,9 @@ function maybeTypo(ch, rate) {
 async function startTyping(tabId, text, wpm, errorRate, burstiness) {
   typingState = { tabId, stopRequested: false, pauseRequested: false, resumeResolve: null, wpm, errorRate, burstiness };
 
-  try { await attach(tabId); }
-  catch (e) {
+  try { 
+    await attach(tabId); 
+  } catch (e) {
     try { await detach(tabId); } catch (_) {}
     try { await attach(tabId); }
     catch (e2) {
@@ -77,6 +78,22 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
       return;
     }
   }
+
+  // Delete selected text if any (mimics normal typing behavior)
+  await send(tabId, "Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Backspace",
+    code: "Backspace",
+    windowsVirtualKeyCode: 8,
+    nativeVirtualKeyCode: 8
+  });
+  await send(tabId, "Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Backspace",
+    code: "Backspace",
+    windowsVirtualKeyCode: 8,
+    nativeVirtualKeyCode: 8
+  });
 
   try {
     for (let i = 0; i < text.length; i++) {
