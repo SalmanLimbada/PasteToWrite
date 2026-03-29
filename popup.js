@@ -49,7 +49,7 @@ function startCountdown(text, wpm, errorPct, burstPct) {
   countdown = calcEstimateSecs(text, wpm, errorPct, burstPct);
   renderCountdown();
   countdownTimer = setInterval(() => {
-    if (countdown !== null && countdown > 0) {
+    if (!isPaused && countdown !== null && countdown > 0) {
       countdown--;
       renderCountdown();
     }
