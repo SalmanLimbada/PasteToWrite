@@ -1,65 +1,53 @@
 const $ = id => document.getElementById(id);
 const DEFAULTS = { wpm: 80, errors: 5, bursts: 30 };
 
-// How long the full text will take given current settings.
-// Accounts for per-char delay variance (avg 1.2x base), typo overhead, and pause bursts.
 function calcEstimateSecs(text, wpm, errorPct, burstPct) {
   if (!text || !text.trim()) return null;
-  const chars = text.length;
+  const chars       = text.length;
   const baseDelayMs = 60000 / (wpm * 5);
-  const avgDelayMs  = baseDelayMs * 1.2;                         // avg of rand(0.6, 1.8)
+  const avgDelayMs  = baseDelayMs * 1.2;
   const typoRate    = errorPct / 100;
-  const typoExtra   = typoRate * (baseDelayMs * 3.5 + baseDelayMs * 3.5 + baseDelayMs * 1.3); // type wrong + pause + backspace + pause
-  const burstExtra  = (burstPct / 100) * 0.12 * 825;            // avg added pause ~825ms, 12% of chars
+  const typoExtra   = typoRate * (baseDelayMs * 3.5 + baseDelayMs * 3.5 + baseDelayMs * 1.3);
+  const burstExtra  = (burstPct / 100) * 0.12 * 825;
   const msPerChar   = avgDelayMs + typoExtra + burstExtra;
   return Math.round((chars * msPerChar) / 1000);
 }
 
 function formatTime(secs) {
   if (secs === null) return "—";
-  if (secs < 60)  return secs + "s";
+  if (secs < 60) return secs + "s";
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return s === 0 ? m + "m" : m + "m " + s + "s";
 }
 
 function updateEstimate() {
-  const text      = $("text").value;
-  const wpm       = Number($("wpm").value);
-  const errorPct  = Number($("errors").value);
-  const burstPct  = Number($("bursts").value);
-  const el        = $("estimateVal");
-  const secs      = calcEstimateSecs(text, wpm, errorPct, burstPct);
-  el.textContent  = formatTime(secs);
-  el.className    = "estimate-value" + (countdown !== null ? " counting" : "");
+  const secs = calcEstimateSecs($("text").value, Number($("wpm").value), Number($("errors").value), Number($("bursts").value));
+  $("estimateVal").textContent = formatTime(secs);
+  $("estimateVal").className   = "estimate-value" + (countdown !== null ? " counting" : "");
 }
 
-// Countdown while typing
-let countdown     = null;   // remaining seconds
-let countdownTimer = null;  // setInterval id
-let countdownWpm  = 80;
-let countdownErr  = 5;
-let countdownBurst = 30;
+let countdown      = null;
+let countdownTimer = null;
+let countdownWpm   = DEFAULTS.wpm;
+let countdownErr   = DEFAULTS.errors;
+let countdownBurst = DEFAULTS.bursts;
 
 function startCountdown(text, wpm, errorPct, burstPct) {
   stopCountdown();
   countdownWpm   = wpm;
   countdownErr   = errorPct;
   countdownBurst = burstPct;
-  countdown = calcEstimateSecs(text, wpm, errorPct, burstPct);
+  countdown      = calcEstimateSecs(text, wpm, errorPct, burstPct);
   renderCountdown();
   countdownTimer = setInterval(() => {
-    if (!isPaused && countdown !== null && countdown > 0) {
-      countdown--;
-      renderCountdown();
-    }
+    if (!isPaused && countdown !== null && countdown > 0) { countdown--; renderCountdown(); }
   }, 1000);
 }
 
 function renderCountdown() {
-  const el = $("estimateVal");
-  el.textContent = countdown !== null ? formatTime(countdown) : "—";
-  el.className = "estimate-value" + (countdown !== null ? " counting" : "");
+  $("estimateVal").textContent = countdown !== null ? formatTime(countdown) : "—";
+  $("estimateVal").className   = "estimate-value" + (countdown !== null ? " counting" : "");
 }
 
 function stopCountdown() {
@@ -69,21 +57,34 @@ function stopCountdown() {
 
 function recalcCountdown() {
   if (countdown === null) return;
-  // Recompute remaining time based on new settings keeping current countdown proportion
-  const text      = $("text").value;
-  const wpm       = Number($("wpm").value);
-  const errorPct  = Number($("errors").value);
-  const burstPct  = Number($("bursts").value);
-  const total     = calcEstimateSecs(text, wpm, errorPct, burstPct);
-  const oldTotal  = calcEstimateSecs(text, countdownWpm, countdownErr, countdownBurst);
-  if (oldTotal && total) {
-    const ratio  = countdown / oldTotal;
-    countdown    = Math.round(total * ratio);
-  }
+  const text     = $("text").value;
+  const wpm      = Number($("wpm").value);
+  const errorPct = Number($("errors").value);
+  const burstPct = Number($("bursts").value);
+  const total    = calcEstimateSecs(text, wpm, errorPct, burstPct);
+  const oldTotal = calcEstimateSecs(text, countdownWpm, countdownErr, countdownBurst);
+  if (oldTotal && total) countdown = Math.round(total * (countdown / oldTotal));
   countdownWpm   = wpm;
   countdownErr   = errorPct;
   countdownBurst = burstPct;
   renderCountdown();
+}
+
+function setProgress(index, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((index / total) * 100)) : 0;
+  $("progressBar").style.width = pct + "%";
+  $("progressPct").textContent = total > 0 ? pct + "%" : "";
+}
+
+function resetProgress() {
+  $("progressBar").style.width = "0%";
+  $("progressPct").textContent = "";
+}
+
+function autoResizeTextarea() {
+  const ta = $("text");
+  ta.style.height = "auto";
+  ta.style.height = Math.min(280, Math.max(78, ta.scrollHeight)) + "px";
 }
 
 function applySettings(wpm, errors, bursts) {
@@ -110,18 +111,16 @@ function pushSettingsIfTyping() {
   }).catch(() => {});
 }
 
-// Restore settings on open
 chrome.storage.local.get(["wpm", "errors", "bursts", "lastText"], d => {
   applySettings(
     d.wpm    !== undefined ? Number(d.wpm)    : DEFAULTS.wpm,
     d.errors !== undefined ? Number(d.errors) : DEFAULTS.errors,
     d.bursts !== undefined ? Number(d.bursts) : DEFAULTS.bursts
   );
-  if (d.lastText) $("text").value = d.lastText;
+  if (d.lastText) { $("text").value = d.lastText; autoResizeTextarea(); }
   updateEstimate();
 });
 
-// Sync UI state with background on every popup open
 chrome.runtime.sendMessage({ action: "ping" }, res => {
   if (chrome.runtime.lastError || !res) return;
   if (res.isTyping && res.isPaused) { setPaused();  setStatus("Paused — hit Resume to continue.", "warn"); }
@@ -141,12 +140,12 @@ $("bursts").addEventListener("input", () => {
   $("burstsVal").textContent = $("bursts").value + "%";
   saveSettings(); pushSettingsIfTyping(); updateEstimate(); recalcCountdown();
 });
-$("text").addEventListener("input", () => { saveSettings(); updateEstimate(); });
+$("text").addEventListener("input", () => { saveSettings(); updateEstimate(); autoResizeTextarea(); });
+$("text").addEventListener("paste", () => { setTimeout(() => { autoResizeTextarea(); updateEstimate(); saveSettings(); }, 0); });
 
 $("btnClearText").addEventListener("click", () => {
   $("text").value = "";
-  saveSettings();
-  updateEstimate();
+  saveSettings(); updateEstimate(); autoResizeTextarea();
   $("text").focus();
 });
 
@@ -196,15 +195,14 @@ function setPaused() {
 
 chrome.runtime.onMessage.addListener(msg => {
   if (msg.action === "typingDone") {
-    stopCountdown();
-    updateEstimate();
-    setIdle();
+    stopCountdown(); updateEstimate(); resetProgress(); setIdle();
     if      (msg.reason === "stopped")       setStatus("Stopped.");
     else if (msg.reason === "attach_failed") setStatus("Couldn't attach: " + (msg.msg || ""), "err");
     else                                     setStatus("Done! All text typed.", "good");
   }
-  if (msg.action === "typingPaused")  { setPaused();  setStatus("Paused — hit Resume to continue.", "warn"); }
-  if (msg.action === "typingResumed") { setRunning(); setStatus("Typing… click back on your tab!", "run"); }
+  if (msg.action === "typingPaused")   { setPaused();  setStatus("Paused — hit Resume to continue.", "warn"); }
+  if (msg.action === "typingResumed")  { setRunning(); setStatus("Typing… click back on your tab!", "run"); }
+  if (msg.action === "typingProgress") { setProgress(msg.index, msg.total); }
 });
 
 $("btnStart").addEventListener("click", async () => {
@@ -234,6 +232,7 @@ $("btnStart").addEventListener("click", async () => {
     setRunning();
     setStatus("Typing… click back on your tab!", "run");
     startCountdown(text, Number($("wpm").value), Number($("errors").value), Number($("bursts").value));
+    resetProgress();
   } else if (res?.reason === "already_typing") {
     setStatus("Already typing — stop first.", "err");
   } else {
@@ -248,8 +247,5 @@ $("btnPause").addEventListener("click", async () => {
 
 $("btnStop").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ action: "stopTyping" });
-  stopCountdown();
-  updateEstimate();
-  setIdle();
-  setStatus("Stopped.");
+  stopCountdown(); updateEstimate(); resetProgress(); setIdle(); setStatus("Stopped.");
 });

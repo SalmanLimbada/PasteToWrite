@@ -64,12 +64,19 @@ function maybeTypo(ch, rate) {
   return n[Math.floor(Math.random() * n.length)];
 }
 
+// Extra pause multiplier per character — makes punctuation feel natural
+function punctuationMultiplier(ch) {
+  if (ch === '.' || ch === '!' || ch === '?' || ch === ':' || ch === ';') return rand(2.5, 4.0);
+  if (ch === ',') return rand(1.4, 2.2);
+  if (ch === ' ') return rand(1.1, 1.5);
+  return 1;
+}
+
 async function startTyping(tabId, text, wpm, errorRate, burstiness) {
   typingState = { tabId, stopRequested: false, pauseRequested: false, resumeResolve: null, wpm, errorRate, burstiness };
 
-  try { 
-    await attach(tabId); 
-  } catch (e) {
+  try { await attach(tabId); }
+  catch (e) {
     try { await detach(tabId); } catch (_) {}
     try { await attach(tabId); }
     catch (e2) {
@@ -79,22 +86,6 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
     }
   }
 
-  // Delete selected text if any (mimics normal typing behavior)
-  await send(tabId, "Input.dispatchKeyEvent", {
-    type: "keyDown",
-    key: "Backspace",
-    code: "Backspace",
-    windowsVirtualKeyCode: 8,
-    nativeVirtualKeyCode: 8
-  });
-  await send(tabId, "Input.dispatchKeyEvent", {
-    type: "keyUp",
-    key: "Backspace",
-    code: "Backspace",
-    windowsVirtualKeyCode: 8,
-    nativeVirtualKeyCode: 8
-  });
-
   try {
     for (let i = 0; i < text.length; i++) {
       if (!typingState || typingState.stopRequested) break;
@@ -103,15 +94,18 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
         if (!typingState || typingState.stopRequested) break;
       }
 
-      const wpmNow = typingState.wpm;
+      const wpmNow       = typingState.wpm;
       const errorRateNow = typingState.errorRate;
       const burstinessNow = typingState.burstiness;
-      const baseDelay = 60000 / (wpmNow * 5);
-      const ch = text[i];
+      const baseDelay    = 60000 / (wpmNow * 5);
+      const ch           = text[i];
+
+      // Progress
+      notifyPopup({ action: "typingProgress", index: i, total: text.length });
 
       if (ch === "\n" || ch === "\r") {
         await cdpEnter(tabId);
-        await interruptibleSleep(baseDelay * rand(0.8, 1.5));
+        await interruptibleSleep(baseDelay * rand(1.5, 3.0));
         continue;
       }
 
@@ -127,7 +121,7 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
 
       await cdpInsertText(tabId, ch);
 
-      let delay = baseDelay * rand(0.6, 1.8);
+      let delay = baseDelay * rand(0.6, 1.8) * punctuationMultiplier(ch);
       if (burstinessNow > 0 && Math.random() < burstinessNow * 0.12) delay += rand(250, 1400);
       await interruptibleSleep(delay);
     }
@@ -135,6 +129,7 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
     console.error("PasteToWrite error:", err);
   }
 
+  notifyPopup({ action: "typingProgress", index: text.length, total: text.length });
   const reason = typingState && typingState.stopRequested ? "stopped" : "finished";
   try { await detach(tabId); } catch (_) {}
   typingState = null;

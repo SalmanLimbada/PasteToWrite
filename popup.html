@@ -36,11 +36,23 @@ body { width: 340px; background: var(--bg); color: var(--text); font-family: var
 .body { padding: 13px 16px 0; display: flex; flex-direction: column; gap: 11px; }
 
 textarea {
-  width: 100%; min-height: 78px; max-height: 280px; height: 78px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); font-family: var(--mono); font-size: 12px;
-  padding: 9px 11px; resize: vertical; outline: none;
-  transition: border-color .2s; line-height: 1.6; display: block;
+  width: 100%;
+  min-height: 78px;
+  max-height: 280px;
+  height: 78px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 9px 11px;
+  resize: none;
+  outline: none;
+  transition: border-color .2s;
+  line-height: 1.6;
+  display: block;
+  overflow-y: auto;
 }
 textarea:focus { border-color: var(--accent); }
 textarea::placeholder { color: var(--muted); }
@@ -63,15 +75,24 @@ input[type=range] { flex: 1; -webkit-appearance: none; height: 3px; background: 
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 5px var(--accent-glow); cursor: pointer; transition: transform .1s; }
 input[type=range]::-webkit-slider-thumb:active { transform: scale(1.2); }
 
-/* Time estimate bar */
-.estimate-bar {
-  display: flex; align-items: center; justify-content: space-between;
+/* Progress + estimate row */
+.info-bar {
+  display: flex; flex-direction: column; gap: 6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
-  padding: 7px 11px; font-family: var(--mono); font-size: 10px;
+  padding: 8px 11px;
 }
-.estimate-label { color: var(--muted); }
-.estimate-value { color: var(--accent); font-weight: 500; letter-spacing: .03em; }
+.info-row { display: flex; align-items: center; justify-content: space-between; }
+.info-label { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.estimate-value { font-family: var(--mono); font-size: 10px; color: var(--accent); font-weight: 500; }
 .estimate-value.counting { color: var(--warn); }
+.progress-track {
+  width: 100%; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; width: 0%; background: var(--accent); border-radius: 2px;
+  transition: width .4s ease;
+}
+.progress-pct { font-family: var(--mono); font-size: 10px; color: var(--muted); }
 
 .buttons { display: flex; gap: 6px; padding-bottom: 13px; }
 button.action { flex: 1; padding: 9px 0; border: none; border-radius: 8px; font-family: var(--mono); font-size: 11px; font-weight: 500; cursor: pointer; transition: opacity .15s, transform .1s, background .2s, box-shadow .2s; letter-spacing: .03em; }
@@ -129,11 +150,21 @@ button.action:disabled { opacity: .28; cursor: not-allowed; transform: none; }
       <input type="range" id="bursts" min="0" max="100" value="30" step="5"/>
       <span class="val" id="burstsVal">30%</span>
     </div>
+
   </div>
 
-  <div class="estimate-bar">
-    <span class="estimate-label">estimated time</span>
-    <span class="estimate-value" id="estimateVal">—</span>
+  <div class="info-bar">
+    <div class="info-row">
+      <span class="info-label">estimated time</span>
+      <span class="estimate-value" id="estimateVal">—</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressBar"></div>
+    </div>
+    <div class="info-row">
+      <span class="info-label">progress</span>
+      <span class="progress-pct" id="progressPct"></span>
+    </div>
   </div>
 
   <div class="buttons">
