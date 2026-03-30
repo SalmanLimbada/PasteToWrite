@@ -9,14 +9,15 @@ A Chrome extension that types your pasted text letter by letter, like a human. W
 - Random pauses to mimic natural typing rhythm
 - Pause and resume mid-typing without losing your place
 - Settings persist between sessions
+- Progress bar showing typing completion
 
 ## How to install
 
-1. Download or clone this repo
+1. Download the ZIP folder or clone this repo
 2. Open Chrome and type `chrome://extensions` in the search bar
 3. Enable Developer mode using the toggle in the top right
 4. Click Load unpacked which will be in the top left and select the folder containing the extension files
-5. The PasteToWrite icon will appear in your Chrome toolbar
+5. The PasteToWrite icon will appear in your Chrome toolbar and now succesfully in your Chrome extensions
 
 ## How to use
 
