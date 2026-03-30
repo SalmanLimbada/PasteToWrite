@@ -13,7 +13,7 @@ A Chrome extension that types your pasted text letter by letter, like a human. W
 ## How to install
 
 1. Download or clone this repo
-2. Open Chrome and go to `chrome://extensions`
+2. Open Chrome and type `chrome://extensions` in the search bar
 3. Enable Developer mode using the toggle in the top right
 4. Click Load unpacked which will be in the top left and select the folder containing the extension files
 5. The PasteToWrite icon will appear in your Chrome toolbar
