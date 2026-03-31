@@ -86,6 +86,10 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
     }
   }
 
+  // Delete selected text before typing — if nothing selected this is a no-op
+  await send(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+  await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp",   key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+
   try {
     for (let i = 0; i < text.length; i++) {
       if (!typingState || typingState.stopRequested) break;
@@ -97,7 +101,7 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
       const wpmNow       = typingState.wpm;
       const errorRateNow = typingState.errorRate;
       const burstinessNow = typingState.burstiness;
-      const baseDelay    = 60000 / (wpmNow * 5);
+      const baseDelay    = 60000 / (wpmNow * 6);
       const ch           = text[i];
 
       // Progress
