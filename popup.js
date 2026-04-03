@@ -95,10 +95,11 @@ function applySettings(wpm, errors, bursts) {
 
 function saveSettings() {
   chrome.storage.local.set({
-    wpm:      $("wpm").value,
-    errors:   $("errors").value,
-    bursts:   $("bursts").value,
-    lastText: $("text").value
+    wpm:          $("wpm").value,
+    errors:       $("errors").value,
+    bursts:       $("bursts").value,
+    lastText:     $("text").value,
+    lastTextTime: $("text").value ? Date.now() : null
   });
 }
 
@@ -111,13 +112,16 @@ function pushSettingsIfTyping() {
   }).catch(() => {});
 }
 
-chrome.storage.local.get(["wpm", "errors", "bursts", "lastText"], d => {
+chrome.storage.local.get(["wpm", "errors", "bursts", "lastText", "lastTextTime"], d => {
   applySettings(
     d.wpm    !== undefined ? Number(d.wpm)    : DEFAULTS.wpm,
     d.errors !== undefined ? Number(d.errors) : DEFAULTS.errors,
     d.bursts !== undefined ? Number(d.bursts) : DEFAULTS.bursts
   );
-  if (d.lastText) { $("text").value = d.lastText; autoResizeTextarea(); }
+  const oneHour = 60 * 60 * 1000;
+  const fresh = d.lastTextTime && (Date.now() - d.lastTextTime) < oneHour;
+  if (d.lastText && fresh) { $("text").value = d.lastText; autoResizeTextarea(); }
+  else if (d.lastText && !fresh) { chrome.storage.local.remove(["lastText", "lastTextTime"]); }
   updateEstimate();
 });
 
