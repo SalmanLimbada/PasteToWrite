@@ -50,8 +50,8 @@ function setEditorHtml(html) {
   $("text").innerHTML = safe;
 }
 
-function buildStyledTypingPayload() {
-  const html = getEditorHtml();
+function buildStyledTypingPayload(htmlInput) {
+  const html = typeof htmlInput === "string" ? sanitizeRichHtml(htmlInput) : getEditorHtml();
   const parser = new DOMParser();
   const doc = parser.parseFromString(html || "", "text/html");
   const BLOCK_TAGS = new Set(["P", "DIV", "LI", "UL", "OL", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "BLOCKQUOTE"]);
@@ -106,6 +106,7 @@ function buildStyledTypingPayload() {
 
     const nextStyle = styleFromElement(style, el);
     const isBlock = BLOCK_TAGS.has(tag);
+    if (tag === "LI") appendChunk("• ", nextStyle);
     if (isBlock && text.length > 0 && !endsWithNewline()) appendChunk("\n", style);
 
     for (const child of Array.from(el.childNodes)) walk(child, nextStyle);
@@ -116,8 +117,6 @@ function buildStyledTypingPayload() {
   for (const child of Array.from(doc.body.childNodes)) {
     walk(child, { bold: false, italic: false, underline: false });
   }
-
-  text = text.replace(/^\n+|\n+$/g, "");
   if (!text) return { text: "", styleRuns: [] };
 
   const boundedRuns = runs
@@ -131,6 +130,47 @@ function buildStyledTypingPayload() {
     .filter(r => r.end > r.start);
 
   return { text, styleRuns: boundedRuns };
+}
+
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function toHtmlWithBreaks(text) {
+  return escapeHtml(text).replace(/\n/g, "<br>");
+}
+
+function wrapWithStyle(html, style) {
+  let out = html;
+  if (style.underline) out = `<u>${out}</u>`;
+  if (style.italic) out = `<em>${out}</em>`;
+  if (style.bold) out = `<strong>${out}</strong>`;
+  return out;
+}
+
+function renderStyledPayloadHtml(payload) {
+  const text = payload.text || "";
+  const runs = Array.isArray(payload.styleRuns) ? payload.styleRuns.slice().sort((a, b) => a.start - b.start) : [];
+  if (!text) return "";
+
+  let out = "";
+  let pos = 0;
+  for (const run of runs) {
+    const start = Math.max(0, Math.min(run.start, text.length));
+    const end = Math.max(0, Math.min(run.end, text.length));
+    if (end <= start) continue;
+
+    if (start > pos) out += toHtmlWithBreaks(text.slice(pos, start));
+    out += wrapWithStyle(toHtmlWithBreaks(text.slice(start, end)), run);
+    pos = end;
+  }
+  if (pos < text.length) out += toHtmlWithBreaks(text.slice(pos));
+  return out;
 }
 
 function calcEstimateSecs(text, wpm, errorPct, burstPct) {
@@ -258,6 +298,8 @@ chrome.storage.local.get(["wpm", "errors", "bursts", "lastText", "lastRichText",
   if ((d.lastRichText || d.lastText) && fresh) {
     if (d.lastRichText) setEditorHtml(d.lastRichText);
     else setEditorHtml((d.lastText || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>"));
+    const normalized = buildStyledTypingPayload();
+    setEditorHtml(renderStyledPayloadHtml(normalized));
     autoResizeTextarea();
   } else if ((d.lastRichText || d.lastText) && !fresh) {
     chrome.storage.local.remove(["lastText", "lastRichText", "lastTextTime"]);
@@ -299,7 +341,8 @@ $("text").addEventListener("paste", e => {
   }
 
   setTimeout(() => {
-    setEditorHtml(getEditorHtml());
+    const normalized = buildStyledTypingPayload();
+    setEditorHtml(renderStyledPayloadHtml(normalized));
     autoResizeTextarea();
     updateEstimate();
     saveSettings();

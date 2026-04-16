@@ -66,16 +66,6 @@ async function hasActiveSelection(tabId) {
   return !!(out && out.result && out.result.value);
 }
 
-async function isGoogleSlidesTab(tabId) {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    const url = (tab && tab.url) || "";
-    return /https:\/\/docs\.google\.com\/presentation\//i.test(url);
-  } catch (_) {
-    return false;
-  }
-}
-
 async function cdpInsertText(tabId, ch) {
   await send(tabId, "Input.insertText", { text: ch });
 }
@@ -133,6 +123,40 @@ async function syncFormatting(tabId, active, desired) {
   }
 }
 
+async function getCurrentFormattingState(tabId) {
+  const expr = `(() => {
+    try {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+        return { bold: false, italic: false, underline: false };
+      }
+      if (typeof document.queryCommandState !== "function") return null;
+      return {
+        bold: !!document.queryCommandState("bold"),
+        italic: !!document.queryCommandState("italic"),
+        underline: !!document.queryCommandState("underline")
+      };
+    } catch (_e) {
+      return null;
+    }
+  })()`;
+
+  const out = await send(tabId, "Runtime.evaluate", {
+    expression: expr,
+    returnByValue: true,
+    userGesture: true,
+    awaitPromise: false
+  });
+
+  const v = out && out.result && out.result.value;
+  if (!v || typeof v !== "object") return null;
+  return {
+    bold: !!v.bold,
+    italic: !!v.italic,
+    underline: !!v.underline
+  };
+}
+
 const NEARBY = {
   a: "sqwz", b: "vghn", c: "xdfv", d: "esxcrf", e: "wsdr", f: "rdcvtg", g: "tyfvbh",
   h: "gyujbn", i: "ujko", j: "huknmi", k: "jilom", l: "kop", m: "njk", n: "bhjm",
@@ -176,16 +200,27 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness, styleRuns) {
       }
     }
 
-    // Replace highlighted text if there is an active selection; in Google Slides, force a delete pass
-    // because the app keeps selection state internally and DOM selection probes can be unreliable.
+    // Replace highlighted text only when an active selection exists.
     try {
-      const forceDelete = await isGoogleSlidesTab(tabId);
-      if (forceDelete || await hasActiveSelection(tabId)) {
+      if (await hasActiveSelection(tabId)) {
         await send(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
         await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
       }
     } catch (_selErr) {
       // If selection probing fails on a page, continue without destructive deletion.
+    }
+
+    if (formattingEnabled) {
+      try {
+        const current = await getCurrentFormattingState(tabId);
+        if (current) {
+          activeStyle.bold = current.bold;
+          activeStyle.italic = current.italic;
+          activeStyle.underline = current.underline;
+        }
+      } catch (_fmtStateErr) {
+        // If unsupported, keep default false baseline and continue.
+      }
     }
 
     for (let i = 0; i < text.length; i++) {
