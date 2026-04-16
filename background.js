@@ -50,6 +50,49 @@ async function cdpBackspace(tabId) {
   await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
 }
 
+async function cdpCtrlShortcut(tabId, key, code, keyCode) {
+  await send(tabId, "Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    key,
+    code,
+    modifiers: 2,
+    windowsVirtualKeyCode: keyCode,
+    nativeVirtualKeyCode: keyCode
+  });
+  await send(tabId, "Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key,
+    code,
+    modifiers: 2,
+    windowsVirtualKeyCode: keyCode,
+    nativeVirtualKeyCode: keyCode
+  });
+}
+
+function styleAt(index, styleRuns, cursor) {
+  while (cursor.i < styleRuns.length && index >= styleRuns[cursor.i].end) cursor.i++;
+  const run = styleRuns[cursor.i];
+  if (!run || index < run.start || index >= run.end) {
+    return { bold: false, italic: false, underline: false };
+  }
+  return { bold: !!run.bold, italic: !!run.italic, underline: !!run.underline };
+}
+
+async function syncFormatting(tabId, active, desired) {
+  if (active.bold !== desired.bold) {
+    await cdpCtrlShortcut(tabId, "b", "KeyB", 66);
+    active.bold = desired.bold;
+  }
+  if (active.italic !== desired.italic) {
+    await cdpCtrlShortcut(tabId, "i", "KeyI", 73);
+    active.italic = desired.italic;
+  }
+  if (active.underline !== desired.underline) {
+    await cdpCtrlShortcut(tabId, "u", "KeyU", 85);
+    active.underline = desired.underline;
+  }
+}
+
 const NEARBY = {
   a: "sqwz", b: "vghn", c: "xdfv", d: "esxcrf", e: "wsdr", f: "rdcvtg", g: "tyfvbh",
   h: "gyujbn", i: "ujko", j: "huknmi", k: "jilom", l: "kop", m: "njk", n: "bhjm",
@@ -72,25 +115,31 @@ function punctuationMultiplier(ch) {
   return 1;
 }
 
-async function startTyping(tabId, text, wpm, errorRate, burstiness) {
+async function startTyping(tabId, text, wpm, errorRate, burstiness, styleRuns) {
   typingState = { tabId, stopRequested: false, pauseRequested: false, resumeResolve: null, wpm, errorRate, burstiness };
-
-  try { await attach(tabId); }
-  catch (e) {
-    try { await detach(tabId); } catch (_) {}
-    try { await attach(tabId); }
-    catch (e2) {
-      notifyPopup({ action: "typingDone", reason: "attach_failed", msg: String(e2) });
-      typingState = null;
-      return;
-    }
-  }
-
-  // Delete selected text before typing — if nothing selected this is a no-op
-  await send(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
-  await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp",   key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+  let doneReason = "finished";
+  let doneMsg = "";
+  let progressIndex = 0;
+  const activeStyle = { bold: false, italic: false, underline: false };
+  const styleCursor = { i: 0 };
+  let formattingEnabled = Array.isArray(styleRuns) && styleRuns.length > 0;
 
   try {
+    try { await attach(tabId); }
+    catch (e) {
+      try { await detach(tabId); } catch (_) {}
+      try { await attach(tabId); }
+      catch (e2) {
+        doneReason = "attach_failed";
+        doneMsg = String(e2);
+        return;
+      }
+    }
+
+    // Delete selected text before typing — if nothing selected this is a no-op
+    await send(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+    await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp",   key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+
     for (let i = 0; i < text.length; i++) {
       if (!typingState || typingState.stopRequested) break;
       if (typingState.pauseRequested) {
@@ -104,11 +153,24 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
       const baseDelay    = 60000 / (wpmNow * 6);
       const ch           = text[i];
 
+      if (formattingEnabled) {
+        const desired = styleAt(i, styleRuns, styleCursor);
+        try {
+          await syncFormatting(tabId, activeStyle, desired);
+        } catch (_err) {
+          // Editors that do not support these shortcuts should continue typing plain text.
+          formattingEnabled = false;
+        }
+      }
+
       // Progress
       notifyPopup({ action: "typingProgress", index: i, total: text.length });
 
-      if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" || ch === "\n") {
+        // Treat CRLF as a single newline to avoid double-enter behavior.
+        if (ch === "\r" && text[i + 1] === "\n") i++;
         await cdpEnter(tabId);
+        progressIndex = i + 1;
         await interruptibleSleep(baseDelay * rand(1.5, 3.0));
         continue;
       }
@@ -124,20 +186,24 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness) {
       }
 
       await cdpInsertText(tabId, ch);
+      progressIndex = i + 1;
 
       let delay = baseDelay * rand(0.6, 1.8) * punctuationMultiplier(ch);
       if (burstinessNow > 0 && Math.random() < burstinessNow * 0.12) delay += rand(250, 1400);
       await interruptibleSleep(delay);
     }
+
+    if (typingState && typingState.stopRequested) doneReason = "stopped";
   } catch (err) {
     console.error("PasteToWrite error:", err);
+    doneReason = "failed";
+    doneMsg = String(err);
+  } finally {
+    notifyPopup({ action: "typingProgress", index: progressIndex, total: text.length });
+    try { await detach(tabId); } catch (_) {}
+    typingState = null;
+    notifyPopup({ action: "typingDone", reason: doneReason, msg: doneMsg });
   }
-
-  notifyPopup({ action: "typingProgress", index: text.length, total: text.length });
-  const reason = typingState && typingState.stopRequested ? "stopped" : "finished";
-  try { await detach(tabId); } catch (_) {}
-  typingState = null;
-  notifyPopup({ action: "typingDone", reason });
 }
 
 function notifyPopup(msg) {
@@ -147,7 +213,7 @@ function notifyPopup(msg) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === "startTyping") {
     if (typingState) { sendResponse({ ok: false, reason: "already_typing" }); return true; }
-    startTyping(msg.tabId, msg.text, msg.wpm, msg.errorRate, msg.burstiness);
+    startTyping(msg.tabId, msg.text, msg.wpm, msg.errorRate, msg.burstiness, msg.styleRuns);
     sendResponse({ ok: true });
     return true;
   }

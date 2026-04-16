@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <title>PasteToWrite</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap');
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #0f0f11;
@@ -18,8 +17,8 @@
   --danger: #f26b6b;
   --success: #6bf2a0;
   --warn: #f5c76b;
-  --mono: 'DM Mono', monospace;
-  --sans: 'DM Sans', sans-serif;
+  --mono: 'Consolas', 'Menlo', 'Monaco', monospace;
+  --sans: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
 }
 body { width: 340px; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; overflow: hidden; }
 
@@ -35,7 +34,7 @@ body { width: 340px; background: var(--bg); color: var(--text); font-family: var
 
 .body { padding: 13px 16px 0; display: flex; flex-direction: column; gap: 11px; }
 
-textarea {
+.editor {
   width: 100%;
   min-height: 78px;
   max-height: 280px;
@@ -53,9 +52,15 @@ textarea {
   line-height: 1.6;
   display: block;
   overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-textarea:focus { border-color: var(--accent); }
-textarea::placeholder { color: var(--muted); }
+.editor:focus { border-color: var(--accent); }
+.editor[contenteditable="true"]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  pointer-events: none;
+}
 
 .text-toolbar { display: flex; justify-content: flex-end; gap: 6px; margin-top: -4px; }
 .btn-small {
@@ -71,7 +76,7 @@ textarea::placeholder { color: var(--muted); }
 .slider-row { display: flex; align-items: center; gap: 9px; }
 .slider-row label { font-size: 11px; color: var(--muted); width: 74px; flex-shrink: 0; font-family: var(--mono); }
 .val { font-family: var(--mono); font-size: 11px; color: var(--accent); width: 40px; text-align: right; flex-shrink: 0; }
-input[type=range] { flex: 1; -webkit-appearance: none; height: 3px; background: var(--border); border-radius: 2px; outline: none; cursor: pointer; }
+input[type=range] { flex: 1; appearance: none; -webkit-appearance: none; height: 3px; background: var(--border); border-radius: 2px; outline: none; cursor: pointer; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 5px var(--accent-glow); cursor: pointer; transition: transform .1s; }
 input[type=range]::-webkit-slider-thumb:active { transform: scale(1.2); }
 
@@ -127,7 +132,7 @@ button.action:disabled { opacity: .28; cursor: not-allowed; transform: none; }
 
 <div class="body">
 
-  <textarea id="text" placeholder="Paste your text here…"></textarea>
+  <div id="text" class="editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Paste your text here…"></div>
 
   <div class="text-toolbar">
     <button class="btn-small danger" id="btnClearText">clear text</button>

@@ -1,10 +1,161 @@
 const $ = id => document.getElementById(id);
 const DEFAULTS = { wpm: 80, errors: 5, bursts: 30 };
 
+function sanitizeRichHtml(html) {
+  if (!html) return "";
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const blockedTags = new Set(["SCRIPT", "STYLE", "LINK", "META", "IFRAME", "OBJECT", "EMBED"]);
+
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
+  const toRemove = [];
+  while (walker.nextNode()) {
+    const el = walker.currentNode;
+    if (blockedTags.has(el.tagName)) {
+      toRemove.push(el);
+      continue;
+    }
+
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value || "";
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if ((name === "href" || name === "src") && /^\s*javascript:/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+
+  for (const el of toRemove) el.remove();
+  return doc.body.innerHTML;
+}
+
+function getEditorText() {
+  return ($("text").innerText || "").replace(/\u00a0/g, " ");
+}
+
+function getEditorHtml() {
+  return sanitizeRichHtml($("text").innerHTML || "");
+}
+
+function setEditorHtml(html) {
+  const safe = sanitizeRichHtml(html || "");
+  $("text").innerHTML = safe;
+}
+
+function buildStyledTypingPayload() {
+  const html = getEditorHtml();
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html || "", "text/html");
+  const BLOCK_TAGS = new Set(["P", "DIV", "LI", "UL", "OL", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "BLOCKQUOTE"]);
+
+  let text = "";
+  const runs = [];
+
+  function appendChunk(chunk, style) {
+    if (!chunk) return;
+    const normalized = chunk.replace(/\u00a0/g, " ");
+    if (!normalized) return;
+    const start = text.length;
+    text += normalized;
+    const end = text.length;
+    if (!(style.bold || style.italic || style.underline)) return;
+
+    const last = runs[runs.length - 1];
+    if (last && last.end === start && last.bold === style.bold && last.italic === style.italic && last.underline === style.underline) {
+      last.end = end;
+      return;
+    }
+    runs.push({ start, end, bold: style.bold, italic: style.italic, underline: style.underline });
+  }
+
+  function endsWithNewline() {
+    return text.length > 0 && text[text.length - 1] === "\n";
+  }
+
+  function styleFromElement(base, el) {
+    const next = { ...base };
+    const tag = el.tagName;
+    if (tag === "B" || tag === "STRONG") next.bold = true;
+    if (tag === "I" || tag === "EM") next.italic = true;
+    if (tag === "U") next.underline = true;
+
+    const styleAttr = (el.getAttribute("style") || "").toLowerCase();
+    if (styleAttr) {
+      const fw = /font-weight\s*:\s*([^;]+)/.exec(styleAttr)?.[1]?.trim();
+      if (fw) {
+        if (fw === "normal" || fw === "400") next.bold = false;
+        if (fw === "bold") next.bold = true;
+        const fwNum = Number(fw);
+        if (!Number.isNaN(fwNum)) next.bold = fwNum >= 600;
+      }
+
+      const fs = /font-style\s*:\s*([^;]+)/.exec(styleAttr)?.[1]?.trim();
+      if (fs) {
+        if (fs === "normal") next.italic = false;
+        if (fs === "italic" || fs === "oblique") next.italic = true;
+      }
+
+      const td = /text-decoration(?:-line)?\s*:\s*([^;]+)/.exec(styleAttr)?.[1]?.trim();
+      if (td) {
+        if (td.includes("none")) next.underline = false;
+        if (td.includes("underline")) next.underline = true;
+      }
+    }
+
+    return next;
+  }
+
+  function walk(node, style) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      appendChunk(node.nodeValue || "", style);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const el = node;
+    const tag = el.tagName;
+    if (tag === "BR") {
+      appendChunk("\n", style);
+      return;
+    }
+
+    const nextStyle = styleFromElement(style, el);
+    const isBlock = BLOCK_TAGS.has(tag);
+    if (isBlock && text.length > 0 && !endsWithNewline()) appendChunk("\n", style);
+
+    for (const child of Array.from(el.childNodes)) walk(child, nextStyle);
+
+    if (isBlock && text.length > 0 && !endsWithNewline()) appendChunk("\n", style);
+  }
+
+  for (const child of Array.from(doc.body.childNodes)) {
+    walk(child, { bold: false, italic: false, underline: false });
+  }
+
+  text = text.replace(/^\n+|\n+$/g, "");
+  if (!text) return { text: "", styleRuns: [] };
+
+  const boundedRuns = runs
+    .map(r => ({
+      start: Math.max(0, Math.min(r.start, text.length)),
+      end: Math.max(0, Math.min(r.end, text.length)),
+      bold: !!r.bold,
+      italic: !!r.italic,
+      underline: !!r.underline
+    }))
+    .filter(r => r.end > r.start);
+
+  return { text, styleRuns: boundedRuns };
+}
+
 function calcEstimateSecs(text, wpm, errorPct, burstPct) {
   if (!text || !text.trim()) return null;
   const chars       = text.length;
-  const baseDelayMs = 60000 / (wpm * 5);
+  const baseDelayMs = 60000 / (wpm * 6);
   const avgDelayMs  = baseDelayMs * 1.2;
   const typoRate    = errorPct / 100;
   const typoExtra   = typoRate * (baseDelayMs * 3.5 + baseDelayMs * 3.5 + baseDelayMs * 1.3);
@@ -22,7 +173,7 @@ function formatTime(secs) {
 }
 
 function updateEstimate() {
-  const secs = calcEstimateSecs($("text").value, Number($("wpm").value), Number($("errors").value), Number($("bursts").value));
+  const secs = calcEstimateSecs(getEditorText(), Number($("wpm").value), Number($("errors").value), Number($("bursts").value));
   $("estimateVal").textContent = formatTime(secs);
   $("estimateVal").className   = "estimate-value" + (countdown !== null ? " counting" : "");
 }
@@ -57,7 +208,7 @@ function stopCountdown() {
 
 function recalcCountdown() {
   if (countdown === null) return;
-  const text     = $("text").value;
+  const text     = getEditorText();
   const wpm      = Number($("wpm").value);
   const errorPct = Number($("errors").value);
   const burstPct = Number($("bursts").value);
@@ -94,12 +245,15 @@ function applySettings(wpm, errors, bursts) {
 }
 
 function saveSettings() {
+  const editorText = getEditorText();
+  const editorHtml = getEditorHtml();
   chrome.storage.local.set({
     wpm:          $("wpm").value,
     errors:       $("errors").value,
     bursts:       $("bursts").value,
-    lastText:     $("text").value,
-    lastTextTime: $("text").value ? Date.now() : null
+    lastText:     editorText,
+    lastRichText: editorHtml,
+    lastTextTime: editorText.trim() ? Date.now() : null
   });
 }
 
@@ -112,7 +266,7 @@ function pushSettingsIfTyping() {
   }).catch(() => {});
 }
 
-chrome.storage.local.get(["wpm", "errors", "bursts", "lastText", "lastTextTime"], d => {
+chrome.storage.local.get(["wpm", "errors", "bursts", "lastText", "lastRichText", "lastTextTime"], d => {
   applySettings(
     d.wpm    !== undefined ? Number(d.wpm)    : DEFAULTS.wpm,
     d.errors !== undefined ? Number(d.errors) : DEFAULTS.errors,
@@ -120,8 +274,13 @@ chrome.storage.local.get(["wpm", "errors", "bursts", "lastText", "lastTextTime"]
   );
   const oneHour = 60 * 60 * 1000;
   const fresh = d.lastTextTime && (Date.now() - d.lastTextTime) < oneHour;
-  if (d.lastText && fresh) { $("text").value = d.lastText; autoResizeTextarea(); }
-  else if (d.lastText && !fresh) { chrome.storage.local.remove(["lastText", "lastTextTime"]); }
+  if ((d.lastRichText || d.lastText) && fresh) {
+    if (d.lastRichText) setEditorHtml(d.lastRichText);
+    else setEditorHtml((d.lastText || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>"));
+    autoResizeTextarea();
+  } else if ((d.lastRichText || d.lastText) && !fresh) {
+    chrome.storage.local.remove(["lastText", "lastRichText", "lastTextTime"]);
+  }
   updateEstimate();
 });
 
@@ -145,10 +304,10 @@ $("bursts").addEventListener("input", () => {
   saveSettings(); pushSettingsIfTyping(); updateEstimate(); recalcCountdown();
 });
 $("text").addEventListener("input", () => { saveSettings(); updateEstimate(); autoResizeTextarea(); });
-$("text").addEventListener("paste", () => { setTimeout(() => { autoResizeTextarea(); updateEstimate(); saveSettings(); }, 0); });
+$("text").addEventListener("paste", () => { setTimeout(() => { setEditorHtml(getEditorHtml()); autoResizeTextarea(); updateEstimate(); saveSettings(); }, 0); });
 
 $("btnClearText").addEventListener("click", () => {
-  $("text").value = "";
+  setEditorHtml("");
   saveSettings(); updateEstimate(); autoResizeTextarea();
   $("text").focus();
 });
@@ -202,6 +361,7 @@ chrome.runtime.onMessage.addListener(msg => {
     stopCountdown(); updateEstimate(); resetProgress(); setIdle();
     if      (msg.reason === "stopped")       setStatus("Stopped.");
     else if (msg.reason === "attach_failed") setStatus("Couldn't attach: " + (msg.msg || ""), "err");
+    else if (msg.reason === "failed")        setStatus("Typing failed: " + (msg.msg || "unexpected error"), "err");
     else                                     setStatus("Done! All text typed.", "good");
   }
   if (msg.action === "typingPaused")   { setPaused();  setStatus("Paused — hit Resume to continue.", "warn"); }
@@ -210,7 +370,8 @@ chrome.runtime.onMessage.addListener(msg => {
 });
 
 $("btnStart").addEventListener("click", async () => {
-  const text = $("text").value;
+  const payload = buildStyledTypingPayload();
+  const text = payload.text;
   if (!text.trim()) { setStatus("Paste some text first.", "err"); return; }
 
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -226,6 +387,7 @@ $("btnStart").addEventListener("click", async () => {
       action:     "startTyping",
       tabId:      tab.id,
       text,
+      styleRuns:   payload.styleRuns,
       wpm:        Number($("wpm").value),
       errorRate:  Number($("errors").value) / 100,
       burstiness: Number($("bursts").value) / 100

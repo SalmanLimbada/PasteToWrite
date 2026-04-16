@@ -3,8 +3,7 @@
   "name": "PasteToWrite",
   "version": "2.0",
   "description": "Types your text letter-by-letter like a human in any tab — Google Slides, Docs, or anywhere else.",
-  "permissions": ["activeTab", "scripting", "storage", "debugger", "tabs"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["activeTab", "storage", "debugger", "tabs"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
