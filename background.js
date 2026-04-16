@@ -36,6 +36,46 @@ function send(tabId, method, params) {
       chrome.runtime.lastError ? rej(chrome.runtime.lastError) : res(r)));
 }
 
+async function hasActiveSelection(tabId) {
+  const expr = `(() => {
+    const active = document.activeElement;
+    if (!active) return false;
+
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+      const start = active.selectionStart;
+      const end = active.selectionEnd;
+      return typeof start === "number" && typeof end === "number" && end > start;
+    }
+
+    if (active.isContentEditable) {
+      const sel = window.getSelection();
+      return !!(sel && sel.rangeCount > 0 && !sel.isCollapsed);
+    }
+
+    const sel = window.getSelection();
+    return !!(sel && sel.rangeCount > 0 && !sel.isCollapsed);
+  })()`;
+
+  const out = await send(tabId, "Runtime.evaluate", {
+    expression: expr,
+    returnByValue: true,
+    userGesture: true,
+    awaitPromise: false
+  });
+
+  return !!(out && out.result && out.result.value);
+}
+
+async function isGoogleSlidesTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const url = (tab && tab.url) || "";
+    return /https:\/\/docs\.google\.com\/presentation\//i.test(url);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function cdpInsertText(tabId, ch) {
   await send(tabId, "Input.insertText", { text: ch });
 }
@@ -134,6 +174,18 @@ async function startTyping(tabId, text, wpm, errorRate, burstiness, styleRuns) {
         doneMsg = String(e2);
         return;
       }
+    }
+
+    // Replace highlighted text if there is an active selection; in Google Slides, force a delete pass
+    // because the app keeps selection state internally and DOM selection probes can be unreliable.
+    try {
+      const forceDelete = await isGoogleSlidesTab(tabId);
+      if (forceDelete || await hasActiveSelection(tabId)) {
+        await send(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+        await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46, nativeVirtualKeyCode: 46 });
+      }
+    } catch (_selErr) {
+      // If selection probing fails on a page, continue without destructive deletion.
     }
 
     for (let i = 0; i < text.length; i++) {

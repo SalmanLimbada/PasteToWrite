@@ -25,6 +25,10 @@ function sanitizeRichHtml(html) {
       }
       if ((name === "href" || name === "src") && /^\s*javascript:/i.test(value)) {
         el.removeAttribute(attr.name);
+        continue;
+      }
+      if (name === "style" || name === "class" || name === "id") {
+        el.removeAttribute(attr.name);
       }
     }
   }
@@ -82,29 +86,6 @@ function buildStyledTypingPayload() {
     if (tag === "B" || tag === "STRONG") next.bold = true;
     if (tag === "I" || tag === "EM") next.italic = true;
     if (tag === "U") next.underline = true;
-
-    const styleAttr = (el.getAttribute("style") || "").toLowerCase();
-    if (styleAttr) {
-      const fw = /font-weight\s*:\s*([^;]+)/.exec(styleAttr)?.[1]?.trim();
-      if (fw) {
-        if (fw === "normal" || fw === "400") next.bold = false;
-        if (fw === "bold") next.bold = true;
-        const fwNum = Number(fw);
-        if (!Number.isNaN(fwNum)) next.bold = fwNum >= 600;
-      }
-
-      const fs = /font-style\s*:\s*([^;]+)/.exec(styleAttr)?.[1]?.trim();
-      if (fs) {
-        if (fs === "normal") next.italic = false;
-        if (fs === "italic" || fs === "oblique") next.italic = true;
-      }
-
-      const td = /text-decoration(?:-line)?\s*:\s*([^;]+)/.exec(styleAttr)?.[1]?.trim();
-      if (td) {
-        if (td.includes("none")) next.underline = false;
-        if (td.includes("underline")) next.underline = true;
-      }
-    }
 
     return next;
   }
