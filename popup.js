@@ -304,7 +304,26 @@ $("bursts").addEventListener("input", () => {
   saveSettings(); pushSettingsIfTyping(); updateEstimate(); recalcCountdown();
 });
 $("text").addEventListener("input", () => { saveSettings(); updateEstimate(); autoResizeTextarea(); });
-$("text").addEventListener("paste", () => { setTimeout(() => { setEditorHtml(getEditorHtml()); autoResizeTextarea(); updateEstimate(); saveSettings(); }, 0); });
+$("text").addEventListener("paste", e => {
+  const cd = e.clipboardData;
+  if (cd) {
+    const hasImageItem = Array.from(cd.items || []).some(item => item.kind === "file" && item.type.startsWith("image/"));
+    const html = cd.getData("text/html") || "";
+    const hasInlineImage = /<img\b/i.test(html);
+    if (hasImageItem || hasInlineImage) {
+      e.preventDefault();
+      setStatus("Images are not supported here. Paste text only.", "err");
+      return;
+    }
+  }
+
+  setTimeout(() => {
+    setEditorHtml(getEditorHtml());
+    autoResizeTextarea();
+    updateEstimate();
+    saveSettings();
+  }, 0);
+});
 
 $("btnClearText").addEventListener("click", () => {
   setEditorHtml("");
